@@ -1,0 +1,4 @@
+
+Скрипт генерации конфигов для https://github.com/max197616/nfqfilter.
+
+Входные данные скрипт получает из БД, созданной скриптом https://github.com/ircop/zapret.
