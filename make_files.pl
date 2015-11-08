@@ -41,7 +41,7 @@ my $bgp_router_id = $Config->{'BGP.router_id'} || "";
 my $bgp_neighbor = $Config->{'BGP.neighbor'} || "";
 my $bgp_remote_as = $Config->{'BGP.remote_as'} || "";
 
-my $dbh = DBI->connect("DBI:mysql:database=".$db_name.";host=".$db_host,$db_user,$db_pass) or die DBI->errstr;
+my $dbh = DBI->connect("DBI:mysql:database=".$db_name.";host=".$db_host,$db_user,$db_pass,{mysql_enable_utf8 => 1}) or die DBI->errstr;
 $dbh->do("set names utf8");
 
 
