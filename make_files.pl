@@ -127,7 +127,7 @@ while (my $ips = $sth->fetchrow_hashref())
 		$logger->info("Need to add another port for http $port");
 	}
 	my $url11=$url1->canonical();
-	$url11 =~ s/http\:\/\///g;
+	$url11 =~ s/^http\:\/\///g;
 
 	# убираем любое упоминание о фрагменте... оно не нужно
 	$url11 =~ s/^(.*)\#(.*)$/$1/g;
@@ -245,7 +245,7 @@ sub parse_our_blacklist
 			$logger->info("Need to add another port for http $port");
 		}
 		my $url11=$url1->canonical();
-		$url11 =~ s/http\:\/\///g;
+		$url11 =~ s/^http\:\/\///g;
 		print $URLS_FILE "$url11\n";
 	}
 }
