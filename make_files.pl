@@ -161,6 +161,11 @@ while (my $ips = $sth->fetchrow_hashref())
 		$logger->info("Adding $port to http protocol");
 		push(@http_add_ports,$port);
 	}
+
+	# убираем завершающую . в домене, если есть
+	$host =~ s/\.$//;
+	$url1->host($host);
+
 	my $url11=$url1->canonical();
 
 	$url11 =~ s/^http\:\/\///g;
