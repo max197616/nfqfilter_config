@@ -105,8 +105,8 @@ while (my $ips = $sth->fetchrow_hashref())
 {
 	my $domain=$ips->{domain};
 	my $domain_canonical=new URI("http://".$domain)->canonical();
-	$domain_canonical =~ s/^http\:\/\///g;
-	$domain_canonical =~ s/\/$//g;
+	$domain_canonical =~ s/^http\:\/\///;
+	$domain_canonical =~ s/\/$//;
 	$logger->debug("Canonical domain: $domain_canonical");
 	print $DOMAINS_FILE $domain_canonical."\n";
 	if($domains_ssl eq "true")
@@ -350,7 +350,7 @@ sub parse_our_blacklist
 			$logger->info("Need to add another port for http $port");
 		}
 		my $url11=$url1->canonical();
-		$url11 =~ s/http\:\/\///g;
+		$url11 =~ s/^http\:\/\///;
 		print $URLS_FILE "$url11\n";
 		make_special_chars($url11);
 	}
@@ -481,18 +481,15 @@ sub analyse_quagga_networks
 sub make_special_chars
 {
 	my $url=shift;
-	if($url =~ /\%7C/)
+	my $orig_url=$url;
+	$url =~ s/\%7C/\|/g;
+	$url =~ s/\+/\%20/g;
+	$url =~ s/\%5B/\[/g;
+	$url =~ s/\%5D/\]/g;
+	$url =~ s/\%3A/\:/g;
+	if($url ne $orig_url)
 	{
-		my $dup_url=$url;
-		$dup_url =~ s/\%7C/\|/g;
-		print $URLS_FILE "$dup_url\n";
-		$logger->debug("Found %7C at url it replaced with '|' and added to file\n");
-	}
-	if($url =~ /\+/)
-	{
-		my $dup_url=$url;
-		$dup_url =~ s/\+/\%20/g;
-		print $URLS_FILE "$dup_url\n";
-		$logger->debug("Found '+' at url it replaced with %20 and added to file\n");
+		$logger->debug("Write changed url to the file");
+		print $URLS_FILE "$url\n";
 	}
 }
