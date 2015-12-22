@@ -162,18 +162,18 @@ while (my $ips = $sth->fetchrow_hashref())
 		push(@http_add_ports,$port);
 	}
 
-	# убираем завершающую . в домене, если есть
 	$host =~ s/\.$//;
 	$url1->host($host);
 
 	my $url11=$url1->canonical();
 
-	$url11 =~ s/^http\:\/\///g;
+	$url11 =~ s/^http\:\/\///;
 
 	# убираем любое упоминание о фрагменте... оно не нужно
 	$url11 =~ s/^(.*)\#(.*)$/$1/g;
 
 	print $URLS_FILE "$url11\n";
+	make_special_chars($url11);
 }
 $sth->finish();
 
@@ -352,6 +352,7 @@ sub parse_our_blacklist
 		my $url11=$url1->canonical();
 		$url11 =~ s/http\:\/\///g;
 		print $URLS_FILE "$url11\n";
+		make_special_chars($url11);
 	}
 }
 
@@ -474,5 +475,24 @@ sub analyse_quagga_networks
 		} else {
 			$logger->info("Quagga configuration successfully saved: added $added_ip ips, deleted $deleted_ip ips");
 		}
+	}
+}
+
+sub make_special_chars
+{
+	my $url=shift;
+	if($url =~ /\%7C/)
+	{
+		my $dup_url=$url;
+		$dup_url =~ s/\%7C/\|/g;
+		print $URLS_FILE "$dup_url\n";
+		$logger->debug("Found %7C at url it replaced with '|' and added to file\n");
+	}
+	if($url =~ /\+/)
+	{
+		my $dup_url=$url;
+		$dup_url =~ s/\+/\%20/g;
+		print $URLS_FILE "$dup_url\n";
+		$logger->debug("Found '+' at url it replaced with %20 and added to file\n");
 	}
 }
