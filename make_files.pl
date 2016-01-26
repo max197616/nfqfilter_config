@@ -182,7 +182,7 @@ $sth->execute;
 while (my $ips = $sth->fetchrow_hashref())
 {
 	my $ip=get_ip($ips->{ip});
-	next if(defined $ip_s{$ip});
+	next if($ip eq "0.0.0.0" || $ip eq "0000:0000:0000:0000:0000:0000:0000:0000" || defined $ip_s{$ip});
 	$ip_s{$ip}=1;
 }
 $sth->finish();
