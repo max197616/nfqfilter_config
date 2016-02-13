@@ -61,7 +61,7 @@ my $urls=0;
 my $https=0;
 my $total_entry=0;
 my %ip_s;
-my %ipv6_nets;
+my %ip_s_null;
 
 my $domains_file_hash_old=get_md5_sum($domains_file);
 my $urls_file_hash_old=get_md5_sum($urls_file);
@@ -177,7 +177,7 @@ while (my $ips = $sth->fetchrow_hashref())
 }
 $sth->finish();
 
-$sth = $dbh->prepare("SELECT ip FROM zap2_ips");
+$sth = $dbh->prepare("SELECT ip FROM zap2_ips UNION SELECT ip FROM zap2_only_ips");
 $sth->execute;
 while (my $ips = $sth->fetchrow_hashref())
 {
@@ -187,14 +187,23 @@ while (my $ips = $sth->fetchrow_hashref())
 }
 $sth->finish();
 
+$sth = $dbh->prepare("SELECT ip FROM zap2_only_ips");
+$sth->execute;
+while (my $ips = $sth->fetchrow_hashref())
+{
+	my $ip=get_ip($ips->{ip});
+	next if($ip eq "0.0.0.0" || $ip eq "0000:0000:0000:0000:0000:0000:0000:0000" || defined $ip_s_null{$ip});
+	$ip_s_null{$ip}=1;
+}
+$sth->finish();
 
 
 parse_our_blacklist($Config->{'APP.blacklist'} || "");
 
 
-
 if(!$update_soft_quagga)
 {
+	my %ipv6_ips;
 	foreach my $ip (keys %ip_s)
 	{
 		my $ip_version=ip_get_version($ip);
@@ -203,21 +212,39 @@ if(!$update_soft_quagga)
 			print $NET_FILE " network $ip/32\n";
 		} elsif ($ip_version == 6)
 		{
-			$ipv6_nets{$ip}=1;
+			$ipv6_ips{$ip}=1;
 		} else {
 			$logger->error("Unknown ip version for ip $ip");
 		}
 	}
-
-	if(keys %ipv6_nets)
+	if(keys %ipv6_ips)
 	{
 		print $NET_FILE "address-family ipv6\n";
 		print $NET_FILE " neighbor $bgp6_neighbor activate\n";
-		foreach my $ip (keys %ipv6_nets)
+		foreach my $ip (keys %ipv6_ips)
 		{
 			print $NET_FILE " network $ip/128\n";
 		}
 		print $NET_FILE "exit-address-family\n";
+	}
+
+	my %ipv6_ips_null;
+	foreach my $ip (keys %ip_s_null)
+	{
+		my $ip_version=ip_get_version($ip);
+		if($ip_version == 4)
+		{
+			print $NET_FILE "ip route $ip/32 Null0\n";
+		} elsif ($ip_version == 6)
+		{
+			$ipv6_ips_null{$ip}=1;
+		} else {
+			$logger->error("Unknown ip version for ip $ip");
+		}
+	}
+	foreach my $ip (keys %ipv6_ips_null)
+	{
+		print $NET_FILE "ip route $ip/128 Null0\n";
 	}
 
 	print $NET_FILE "!\nline vty\n!\n\n";
@@ -331,6 +358,7 @@ sub parse_our_blacklist
 		foreach my $ip (@adrs)
 		{
 			next if(defined $ip_s{$ip});
+			next if($ip =~ /89.250.0./);
 			$ip_s{$ip}=1;
 			#print $NET_FILE " network $ip/32\n";
 		}
@@ -398,8 +426,11 @@ sub analyse_quagga_networks
 {
 	my $need_save_config=0;
 	my $added_ip=0;
+	my $added_ip_null=0;
 	my $deleted_ip=0;
+	my $deleted_ip_null=0;
 	my %ips_to_add=%ip_s;
+	my %ips_to_add_null=%ip_s_null;
 	foreach my $line (split /\n/ ,$show_run)
 	{
 		next if ($line =~ /^\s*\!/);
@@ -438,6 +469,31 @@ sub analyse_quagga_networks
 				}
 			}
 		}
+		if($line =~ /^ip\s+route\s+(.+)\/(\d+)/)
+		{
+			my $address=$1;
+			my $mask=$2;
+			my $ip_version=ip_get_version($address);
+			my $ip_a = new Net::IP ($address);
+			if(defined $ip_s_null{$ip_a->ip()})
+			{
+				delete $ips_to_add_null{$ip_a->ip()};
+			}
+			if (!exists( $ip_s_null{$ip_a->ip()})) # удаляем из blackhole
+			{
+				my $del_cmd="$vtysh -c 'configure terminal' -c 'no ip route $address/$mask Null0'";
+				$logger->debug("Delete ip address $address/$mask from blackhole via vtysh");
+				my $output=`$del_cmd`;
+				if ( $? == -1 )
+				{
+					$logger->error("Error while executed cmd $del_cmd: $!");
+				} else {
+					$need_save_config++;
+					$deleted_ip_null++;
+					$logger->debug("Command '$del_cmd' excecuted successfully");
+				}
+			}
+		}
 	}
 	foreach my $ip (keys %ips_to_add)
 	{
@@ -466,6 +522,35 @@ sub analyse_quagga_networks
 			$logger->debug("Command '$add_cmd' excecuted successfully");
 		}
 	}
+	foreach my $ip (keys %ips_to_add_null)
+	{
+		print "analyse ip $ip\n";
+		my $ip_version=ip_get_version($ip);
+		my $add_cmd="$vtysh -c 'configure terminal'";
+		my $mask="32";
+		if($ip_version == 4)
+		{
+		} elsif ($ip_version == 6)
+		{
+			$mask="128";
+		} else {
+			$logger->error("Unknown ip version for ip $ip");
+			next;
+		}
+		$add_cmd .= " -c 'ip route $ip/$mask Null0'";
+		$logger->debug("Add ip address $ip to blackhole via vtysh");
+		my $output=`$add_cmd`;
+		if ( $? == -1 )
+		{
+			$logger->error("Error while executed cmd $add_cmd: $!");
+		} else {
+			$need_save_config++;
+			$added_ip_null++;
+			$logger->debug("Command '$add_cmd' excecuted successfully");
+		}
+	}
+
+
 	if($need_save_config)
 	{
 		my $output=`$vtysh -c 'write mem'`;
@@ -473,7 +558,7 @@ sub analyse_quagga_networks
 		{
 			$logger->error("Unable to write Quagga configuration: $!");
 		} else {
-			$logger->info("Quagga configuration successfully saved: added $added_ip ips, deleted $deleted_ip ips");
+			$logger->info("Quagga configuration successfully saved: added $added_ip ips, deleted $deleted_ip ips, added $added_ip_null routes to blackhole, deleted $deleted_ip_null routes from blackhole.");
 		}
 	}
 }
