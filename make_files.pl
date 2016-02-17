@@ -5,6 +5,7 @@
 
 use strict;
 use warnings;
+use utf8;
 use Config::Simple;
 use DBI;
 use File::Basename;
@@ -14,8 +15,12 @@ use POSIX;
 use Digest::MD5;
 use Log::Log4perl;
 use Net::IP qw(:PROC);
+use Encode;
 
-use utf8;
+
+binmode(STDOUT,':utf8');
+binmode(STDERR,':utf8');
+
 my $dir = File::Basename::dirname($0);
 
 my $Config = {};
@@ -69,6 +74,7 @@ my $ssl_host_file_hash_old=get_md5_sum($ssls_file);
 my $net_file_hash_old=get_md5_sum($bgpd_file);
 
 open (my $DOMAINS_FILE, ">",$domains_file) or die "Could not open file '$domains_file' $!";
+#open (my $URLS_FILE, ">:encoding(UTF-8)",$urls_file) or die "Could not open file '$urls_file' $!";
 open (my $URLS_FILE, ">",$urls_file) or die "Could not open file '$urls_file' $!";
 open (my $SSL_HOST_FILE, ">",$ssls_file) or die "Could not open file '$ssls_file' $!";
 
@@ -173,7 +179,7 @@ while (my $ips = $sth->fetchrow_hashref())
 	$url11 =~ s/^(.*)\#(.*)$/$1/g;
 
 	print $URLS_FILE "$url11\n";
-	make_special_chars($url11);
+	make_special_chars($url11,$url1->as_iri());
 }
 $sth->finish();
 
@@ -285,7 +291,6 @@ close $PROTOS_FILE;
 $dbh->disconnect();
 
 
-
 my $domains_file_hash=get_md5_sum($domains_file);
 my $urls_file_hash=get_md5_sum($urls_file);
 my $ssl_host_file_hash=get_md5_sum($ssls_file);
@@ -358,7 +363,6 @@ sub parse_our_blacklist
 		foreach my $ip (@adrs)
 		{
 			next if(defined $ip_s{$ip});
-			next if($ip =~ /89.250.0./);
 			$ip_s{$ip}=1;
 			#print $NET_FILE " network $ip/32\n";
 		}
@@ -563,18 +567,49 @@ sub analyse_quagga_networks
 	}
 }
 
-sub make_special_chars
+sub _encode_sp
 {
 	my $url=shift;
-	my $orig_url=$url;
 	$url =~ s/\%7C/\|/g;
 	$url =~ s/\+/\%20/g;
 	$url =~ s/\%5B/\[/g;
 	$url =~ s/\%5D/\]/g;
 	$url =~ s/\%3A/\:/g;
+	return $url;
+}
+
+sub make_special_chars
+{
+	my $url=shift;
+	my $orig_rkn=shift;
+	my $orig_url=$url;
+	$url = _encode_sp($url);
 	if($url ne $orig_url)
 	{
 		$logger->debug("Write changed url to the file");
 		print $URLS_FILE "$url\n";
+	}
+	if($url =~ /\%27/)
+	{
+		$url =~ s/\%27/\'/g;
+		$logger->debug("Write changed url to the file");
+		print $URLS_FILE "$url\n";
+	}
+	if($orig_rkn && $orig_rkn =~ /[а-я]/i)
+	{
+		return if($orig_rkn =~ /^http\:\/\/[а-я]/i || $orig_rkn =~ /^http\:\/\/www\.[а-я]/i);
+		$orig_rkn =~ s/^http\:\/\///;
+		$orig_rkn =~ s/^(.*)\#(.*)$/$1/g;
+		my $str = encode("utf8", $orig_rkn);
+		Encode::from_to($str, 'utf-8','windows-1251');
+		if($str ne $orig_rkn)
+		{
+			$logger->debug("Write changed url to the file");
+			print $URLS_FILE "$str\n";
+		}
+		if($url ne $orig_rkn)
+		{
+			print $URLS_FILE encode("utf8",$orig_rkn)."\n";
+		}
 	}
 }
