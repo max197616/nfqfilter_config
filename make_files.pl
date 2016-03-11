@@ -12,7 +12,7 @@ use File::Basename;
 use URI;
 use Net::Nslookup;
 use POSIX;
-use Digest::MD5;
+use Digest::MD5 qw (md5);
 use Log::Log4perl;
 use Net::IP qw(:PROC);
 use Encode;
@@ -67,6 +67,7 @@ my $https=0;
 my $total_entry=0;
 my %ip_s;
 my %ip_s_null;
+my %already_out;
 
 my $domains_file_hash_old=get_md5_sum($domains_file);
 my $urls_file_hash_old=get_md5_sum($urls_file);
@@ -174,11 +175,19 @@ while (my $ips = $sth->fetchrow_hashref())
 	my $url11=$url1->canonical();
 
 	$url11 =~ s/^http\:\/\///;
+	$url2 =~ s/^http\:\/\///;
 
 	# убираем любое упоминание о фрагменте... оно не нужно
 	$url11 =~ s/^(.*)\#(.*)$/$1/g;
+	$url2 =~ s/^(.*)\#(.*)$/$1/g;
 
-	print $URLS_FILE "$url11\n";
+	$url2 .= "/" if($url2 !~ /\//);
+
+	insert_to_url($url11);
+	if($url2 ne $url11)
+	{
+		insert_to_url($url2);
+	}
 	make_special_chars($url11,$url1->as_iri());
 }
 $sth->finish();
@@ -290,7 +299,6 @@ close $PROTOS_FILE;
 
 $dbh->disconnect();
 
-
 my $domains_file_hash=get_md5_sum($domains_file);
 my $urls_file_hash=get_md5_sum($urls_file);
 my $ssl_host_file_hash=get_md5_sum($ssls_file);
@@ -383,7 +391,7 @@ sub parse_our_blacklist
 		}
 		my $url11=$url1->canonical();
 		$url11 =~ s/^http\:\/\///;
-		print $URLS_FILE "$url11\n";
+		insert_to_url($url11);
 		make_special_chars($url11);
 	}
 }
@@ -587,13 +595,13 @@ sub make_special_chars
 	if($url ne $orig_url)
 	{
 		$logger->debug("Write changed url to the file");
-		print $URLS_FILE "$url\n";
+		insert_to_url($url);
 	}
 	if($url =~ /\%27/)
 	{
 		$url =~ s/\%27/\'/g;
 		$logger->debug("Write changed url to the file");
-		print $URLS_FILE "$url\n";
+		insert_to_url($url);
 	}
 	if($orig_rkn && $orig_rkn =~ /[а-я]/i)
 	{
@@ -605,11 +613,21 @@ sub make_special_chars
 		if($str ne $orig_rkn)
 		{
 			$logger->debug("Write changed url to the file");
-			print $URLS_FILE "$str\n";
+			print $URLS_FILE $str."\n";
 		}
 		if($url ne $orig_rkn)
 		{
-			print $URLS_FILE encode("utf8",$orig_rkn)."\n";
+			insert_to_url($orig_rkn);
 		}
 	}
+}
+
+sub insert_to_url
+{
+	my $url=shift;
+	my $encoded=encode("utf8", $url);
+	my $sum = md5($encoded);
+	return if(defined $already_out{$sum});
+	$already_out{$sum}=1;
+	print $URLS_FILE $encoded."\n";
 }
