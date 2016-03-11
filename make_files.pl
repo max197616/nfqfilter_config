@@ -44,6 +44,7 @@ my $urls_file = $Config->{'APP.urls'} || "";
 my $ssls_file = $Config->{'APP.ssls'} || "";
 my $hosts_file = $Config->{'APP.hosts'} || "";
 my $protos_file = $Config->{'APP.protocols'} || "";
+my $ssls_ips_file = $Config->{'APP.ssls_ips'} || "";
 my $domains_ssl = $Config->{'APP.domains_ssl'} || "false";
 $domains_ssl = lc($domains_ssl);
 
@@ -74,11 +75,10 @@ my $urls_file_hash_old=get_md5_sum($urls_file);
 my $ssl_host_file_hash_old=get_md5_sum($ssls_file);
 my $net_file_hash_old=get_md5_sum($bgpd_file);
 
-open (my $DOMAINS_FILE, ">",$domains_file) or die "Could not open file '$domains_file' $!";
-#open (my $URLS_FILE, ">:encoding(UTF-8)",$urls_file) or die "Could not open file '$urls_file' $!";
-open (my $URLS_FILE, ">",$urls_file) or die "Could not open file '$urls_file' $!";
-open (my $SSL_HOST_FILE, ">",$ssls_file) or die "Could not open file '$ssls_file' $!";
-
+open (my $DOMAINS_FILE, ">",$domains_file) or die "Could not open DOMAINS '$domains_file' file: $!";
+open (my $URLS_FILE, ">",$urls_file) or die "Could not open URLS '$urls_file' file: $!";
+open (my $SSL_HOST_FILE, ">",$ssls_file) or die "Could not open SSL hosts '$ssls_file' file: $!";
+open (my $SSL_IPS_FILE, ">", $ssls_ips_file) or die "Could not open SSL ips '$ssls_ips_file' file: $!";
 
 my $cmd = "$vtysh -c 'show run'";
 my $show_run=`$cmd`;
@@ -105,6 +105,7 @@ my @http_add_ports;
 my @https_add_ports;
 
 my %ssl_hosts;
+my %ssl_ip;
 
 my $sth = $dbh->prepare("SELECT * FROM zap2_domains");
 $sth->execute;
@@ -161,6 +162,13 @@ while (my $ips = $sth->fetchrow_hashref())
 			$logger->info("Adding $port to https protocol");
 			push(@https_add_ports,$port);
 		}
+		my @ssl_ips=get_ips_for_record_id($ips->{record_id});
+		foreach my $ip (@ssl_ips)
+		{
+			next if(defined $ssl_ip{$ip});
+			$ssl_ip{$ip}=1;
+			print $SSL_IPS_FILE "$ip","\n";
+		}
 		next;
 	}
 	if($port ne "80")
@@ -186,6 +194,7 @@ while (my $ips = $sth->fetchrow_hashref())
 	insert_to_url($url11);
 	if($url2 ne $url11)
 	{
+#		print "insert original url $url2\n";
 		insert_to_url($url2);
 	}
 	make_special_chars($url11,$url1->as_iri());
@@ -296,6 +305,7 @@ close $URLS_FILE;
 close $SSL_HOST_FILE;
 close $HOSTS_FILE;
 close $PROTOS_FILE;
+close $SSL_IPS_FILE;
 
 $dbh->disconnect();
 
