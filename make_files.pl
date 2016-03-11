@@ -610,10 +610,16 @@ sub make_special_chars
 	if($url =~ /\%27/)
 	{
 		$url =~ s/\%27/\'/g;
-		$logger->debug("Write changed url to the file");
+		$logger->debug("Write changed url (%27) to the file");
 		insert_to_url($url);
 	}
-	if($orig_rkn && $orig_rkn =~ /[а-я]/i)
+	if($url =~ /\%5C/)
+	{
+		$url =~ s/\%5C/\//g;
+		$logger->debug("Write changed url (slashes) to the file");
+		insert_to_url($url);
+	}
+	if($orig_rkn && $orig_rkn =~ /[\x{0080}-\x{FFFF}]/)
 	{
 		return if($orig_rkn =~ /^http\:\/\/[а-я]/i || $orig_rkn =~ /^http\:\/\/www\.[а-я]/i);
 		$orig_rkn =~ s/^http\:\/\///;
@@ -622,11 +628,12 @@ sub make_special_chars
 		Encode::from_to($str, 'utf-8','windows-1251');
 		if($str ne $orig_rkn)
 		{
-			$logger->debug("Write changed url to the file");
+			$logger->debug("Write url in cp1251 to the file");
 			print $URLS_FILE $str."\n";
 		}
 		if($url ne $orig_rkn)
 		{
+			$logger->debug("Write changed url to the file");
 			insert_to_url($orig_rkn);
 		}
 	}
