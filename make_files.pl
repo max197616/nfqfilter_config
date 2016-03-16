@@ -10,7 +10,6 @@ use Config::Simple;
 use DBI;
 use File::Basename;
 use URI;
-use Net::Nslookup;
 use POSIX;
 use Digest::MD5 qw (md5);
 use Log::Log4perl;
@@ -221,10 +220,6 @@ while (my $ips = $sth->fetchrow_hashref())
 }
 $sth->finish();
 
-
-parse_our_blacklist($Config->{'APP.blacklist'} || "");
-
-
 if(!$update_soft_quagga)
 {
 	my %ipv6_ips;
@@ -338,71 +333,6 @@ if($domains_file_hash ne $domains_file_hash_old || $urls_file_hash ne $urls_file
 		$logger->error("Nfqfilter restart failed: $!");
 	} else {
 		$logger->info("Nfqfilter successfully restarted!");
-	}
-}
-
-
-sub parse_our_blacklist
-{
-	my $file=shift;
-	my @urls;
-	if(open (my $our_f,"<",$file))
-	{
-		while(my $line=<$our_f>)
-		{
-			chomp $line;
-			push(@urls,$line);
-		}
-		close($our_f);
-	} else {
-		warn "Could not open file '$file' $!";
-		return ;
-	}
-#	print $NET_FILE " ! ip's from our blacklist\n";
-	foreach my $url (@urls)
-	{
-		my $url1=new URI($url);
-		my $scheme=$url1->scheme();
-		if($scheme !~ /http/ && $scheme !~ /https/)
-		{
-			$logger->warn("bad scheme for: $url. Skip it.");
-			next;
-		}
-		my $host=$url1->host();
-		my $path=$url1->path();
-		my $query=$url1->query();
-		my $port=$url1->port();
-		my @adrs = ();
-		eval
-		{
-			@adrs = nslookup(domain => $host, server => @resolvers, timeout => 4 );
-		};
-#		print $NET_FILE " ! host: $host\n" if(@adrs);
-		foreach my $ip (@adrs)
-		{
-			next if(defined $ip_s{$ip});
-			$ip_s{$ip}=1;
-			#print $NET_FILE " network $ip/32\n";
-		}
-		if($scheme eq 'https')
-		{
-			next if(defined $ssl_hosts{$host});
-			$ssl_hosts{$host}=1;
-			print $SSL_HOST_FILE "$host\n";
-			if($port ne "443")
-			{
-				$logger->info("Need to add another port for ssl $port");
-			}
-			next;
-		}
-		if($port ne "80")
-		{
-			$logger->info("Need to add another port for http $port");
-		}
-		my $url11=$url1->canonical();
-		$url11 =~ s/^http\:\/\///;
-		insert_to_url($url11);
-		make_special_chars($url11);
 	}
 }
 
