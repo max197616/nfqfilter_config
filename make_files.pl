@@ -121,6 +121,13 @@ while (my $ips = $sth->fetchrow_hashref())
 		next if(defined $ssl_hosts{$domain_canonical});
 		$ssl_hosts{$domain_canonical}=1;
 		print $SSL_HOST_FILE "$domain_canonical\n";
+		my @ssl_ips=get_ips_for_record_id($ips->{record_id});
+		foreach my $ip (@ssl_ips)
+		{
+			next if(defined $ssl_ip{$ip});
+			$ssl_ip{$ip}=1;
+			print $SSL_IPS_FILE "$ip","\n";
+		}
 	}
 }
 $sth->finish();
