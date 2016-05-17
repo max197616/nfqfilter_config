@@ -15,6 +15,8 @@ use Digest::MD5 qw (md5);
 use Log::Log4perl;
 use Net::IP qw(:PROC);
 use Encode;
+use Net::CIDR::Lite;
+use IPC::Open2;
 
 
 binmode(STDOUT,':utf8');
@@ -66,8 +68,20 @@ my $urls=0;
 my $https=0;
 my $total_entry=0;
 my %ip_s;
+my %ip6_s;
 my %ip_s_null;
+my %ip6_s_null;
 my %already_out;
+
+my $ip_cidr=new Net::CIDR::Lite;
+my $ip_cidr_null=new Net::CIDR::Lite;
+my $ip6_cidr=new Net::CIDR::Lite;
+my $ip6_cidr_null=new Net::CIDR::Lite;
+
+my @ip_list;
+my @ip6_list;
+my @ip_list_null;
+my @ip6_list_null;
 
 my $domains_file_hash_old=get_md5_sum($domains_file);
 my $urls_file_hash_old=get_md5_sum($urls_file);
@@ -212,8 +226,16 @@ $sth->execute;
 while (my $ips = $sth->fetchrow_hashref())
 {
 	my $ip=get_ip($ips->{ip});
-	next if($ip eq "0.0.0.0" || $ip eq "0000:0000:0000:0000:0000:0000:0000:0000" || defined $ip_s{$ip});
-	$ip_s{$ip}=1;
+	next if($ip eq "0.0.0.0" || $ip eq "0000:0000:0000:0000:0000:0000:0000:0000");
+	my $ip_version=ip_get_version($ip);
+	if($ip_version == 4)
+	{
+		$ip_cidr->add_any($ip);
+	} elsif ($ip_version == 6)
+	{
+		$ip6_cidr->add_any($ip);
+	}
+
 }
 $sth->finish();
 
@@ -222,57 +244,51 @@ $sth->execute;
 while (my $ips = $sth->fetchrow_hashref())
 {
 	my $ip=get_ip($ips->{ip});
-	next if($ip eq "0.0.0.0" || $ip eq "0000:0000:0000:0000:0000:0000:0000:0000" || defined $ip_s_null{$ip});
-	$ip_s_null{$ip}=1;
+	next if($ip eq "0.0.0.0" || $ip eq "0000:0000:0000:0000:0000:0000:0000:0000");
+	my $ip_version=ip_get_version($ip);
+	if($ip_version == 4)
+	{
+		$ip_cidr_null->add_any($ip);
+	} elsif ($ip_version == 6)
+	{
+		$ip6_cidr_null->add_any($ip);
+	}
 }
 $sth->finish();
 
+@ip_list=$ip_cidr->list();
+%ip_s = map { $_ => 1 } @ip_list;
+@ip6_list=$ip6_cidr->list();
+%ip6_s = map { $_ => 1 } @ip6_list;
+@ip_list_null=$ip_cidr_null->list();
+%ip_s_null = map { $_ => 1 } @ip_list_null;
+@ip6_list_null=$ip6_cidr_null->list();
+%ip6_s_null = map { $_ => 1 } @ip6_list_null;
+
 if(!$update_soft_quagga)
 {
-	my %ipv6_ips;
-	foreach my $ip (keys %ip_s)
+	foreach my $ip (@ip_list)
 	{
-		my $ip_version=ip_get_version($ip);
-		if($ip_version == 4)
-		{
-			print $NET_FILE " network $ip/32\n";
-		} elsif ($ip_version == 6)
-		{
-			$ipv6_ips{$ip}=1;
-		} else {
-			$logger->error("Unknown ip version for ip $ip");
-		}
+		print $NET_FILE " network $ip\n";
 	}
-	if(keys %ipv6_ips)
+	if(@ip6_list)
 	{
 		print $NET_FILE "address-family ipv6\n";
 		print $NET_FILE " neighbor $bgp6_neighbor activate\n";
-		foreach my $ip (keys %ipv6_ips)
+		foreach my $ip (@ip6_list)
 		{
-			print $NET_FILE " network $ip/128\n";
+			print $NET_FILE " network $ip\n";
 		}
 		print $NET_FILE "exit-address-family\n";
 	}
-
-	my %ipv6_ips_null;
-	foreach my $ip (keys %ip_s_null)
+	foreach my $ip (@ip_list_null)
 	{
-		my $ip_version=ip_get_version($ip);
-		if($ip_version == 4)
-		{
-			print $NET_FILE "ip route $ip/32 Null0\n";
-		} elsif ($ip_version == 6)
-		{
-			$ipv6_ips_null{$ip}=1;
-		} else {
-			$logger->error("Unknown ip version for ip $ip");
-		}
+		print $NET_FILE "ip route $ip Null0\n";
 	}
-	foreach my $ip (keys %ipv6_ips_null)
+	foreach my $ip (@ip6_list_null)
 	{
-		print $NET_FILE "ip route $ip/128 Null0\n";
+		print $NET_FILE "ip route $ip Null0\n";
 	}
-
 	print $NET_FILE "!\nline vty\n!\n\n";
 	close $NET_FILE;
 } else {
@@ -384,12 +400,17 @@ sub get_ip
 sub analyse_quagga_networks
 {
 	my $need_save_config=0;
-	my $added_ip=0;
-	my $added_ip_null=0;
-	my $deleted_ip=0;
-	my $deleted_ip_null=0;
-	my %ips_to_add=%ip_s;
+
+	my %ips_to_add = %ip_s;
+	my %ips6_to_add = %ip6_s;
 	my %ips_to_add_null=%ip_s_null;
+	my %ips6_to_add_null=%ip6_s_null;
+
+	my %ips_to_del;
+	my %ips6_to_del;
+	my %ips_to_del_null;
+	my %ips6_to_del_null;
+
 	foreach my $line (split /\n/ ,$show_run)
 	{
 		next if ($line =~ /^\s*\!/);
@@ -398,33 +419,23 @@ sub analyse_quagga_networks
 			my $address=$1;
 			my $mask=$2;
 			my $ip_version=ip_get_version($address);
-			my $ip_a = new Net::IP ($address);
-			if(defined $ip_s{$ip_a->ip()})
+			my $ip_a = new Net::IP ("$address/$mask");
+			my $ip_p = $ip_a->print();
+			if($ip_version == 4)
 			{
-				delete $ips_to_add{$ip_a->ip()};
-			}
-			if (!exists( $ip_s{$ip_a->ip()})) # удаляем из bgpd
-			{
-				my $del_cmd="$vtysh -c 'configure terminal' -c 'router bgp $bgp_as'";
-				if($ip_version == 4)
+				 if(defined $ip_s{$ip_p})
 				{
-				} elsif ($ip_version == 6)
-				{
-					$del_cmd .= " -c 'address-family ipv6'";
+					delete $ips_to_add{$ip_p};
 				} else {
-					$logger->error("Unknown ip version for ip $address");
-					next;
+					$ips_to_del{$ip_p}=1;
 				}
-				$del_cmd .= " -c 'no network $address/$mask'";
-				$logger->debug("Delete ip address $address from bgpd via vtysh");
-				my $output=`$del_cmd`;
-				if ( $? == -1 )
+			} elsif ($ip_version == 6)
+			{
+				if(defined $ip6_s{$ip_p})
 				{
-					$logger->error("Error while executed cmd $del_cmd: $!");
+					delete $ips6_to_add{$ip_p};
 				} else {
-					$need_save_config++;
-					$deleted_ip++;
-					$logger->debug("Command '$del_cmd' excecuted successfully");
+					$ips6_to_del{$ip_p}=1;
 				}
 			}
 		}
@@ -433,91 +444,89 @@ sub analyse_quagga_networks
 			my $address=$1;
 			my $mask=$2;
 			my $ip_version=ip_get_version($address);
-			my $ip_a = new Net::IP ($address);
-			if(defined $ip_s_null{$ip_a->ip()})
+			my $ip_a = new Net::IP ("$address/$mask");
+			my $ip_p = $ip_a->print();
+			if($ip_version == 4)
 			{
-				delete $ips_to_add_null{$ip_a->ip()};
-			}
-			if (!exists( $ip_s_null{$ip_a->ip()})) # удаляем из blackhole
-			{
-				my $del_cmd="$vtysh -c 'configure terminal' -c 'no ip route $address/$mask Null0'";
-				$logger->debug("Delete ip address $address/$mask from blackhole via vtysh");
-				my $output=`$del_cmd`;
-				if ( $? == -1 )
+				if(defined $ip_s_null{$ip_p})
 				{
-					$logger->error("Error while executed cmd $del_cmd: $!");
+					delete $ips_to_add_null{$ip_p};
 				} else {
-					$need_save_config++;
-					$deleted_ip_null++;
-					$logger->debug("Command '$del_cmd' excecuted successfully");
+					$ips_to_del_null{$ip_p}=1;
+				}
+			} elsif ($ip_version == 6)
+			{
+				if(defined $ip6_s_null{$ip_p})
+				{
+					delete $ips6_to_add_null{$ip_p};
+				} else {
+					$ips6_to_del_null{$ip_p}=1;
 				}
 			}
 		}
 	}
-	foreach my $ip (keys %ips_to_add)
-	{
-		my $ip_version=ip_get_version($ip);
-		my $add_cmd="$vtysh -c 'configure terminal' -c 'router bgp $bgp_as'";
-		my $mask="32";
-		if($ip_version == 4)
-		{
-		} elsif ($ip_version == 6)
-		{
-			$add_cmd .= " -c 'address-family ipv6'";
-			$mask="128";
-		} else {
-			$logger->error("Unknown ip version for ip $ip");
-			next;
-		}
-		$add_cmd .= " -c 'network $ip/$mask'";
-		$logger->debug("Add ip address $ip to bgpd via vtysh");
-		my $output=`$add_cmd`;
-		if ( $? == -1 )
-		{
-			$logger->error("Error while executed cmd $add_cmd: $!");
-		} else {
-			$need_save_config++;
-			$added_ip++;
-			$logger->debug("Command '$add_cmd' excecuted successfully");
-		}
-	}
-	foreach my $ip (keys %ips_to_add_null)
-	{
-		print "analyse ip $ip\n";
-		my $ip_version=ip_get_version($ip);
-		my $add_cmd="$vtysh -c 'configure terminal'";
-		my $mask="32";
-		if($ip_version == 4)
-		{
-		} elsif ($ip_version == 6)
-		{
-			$mask="128";
-		} else {
-			$logger->error("Unknown ip version for ip $ip");
-			next;
-		}
-		$add_cmd .= " -c 'ip route $ip/$mask Null0'";
-		$logger->debug("Add ip address $ip to blackhole via vtysh");
-		my $output=`$add_cmd`;
-		if ( $? == -1 )
-		{
-			$logger->error("Error while executed cmd $add_cmd: $!");
-		} else {
-			$need_save_config++;
-			$added_ip_null++;
-			$logger->debug("Command '$add_cmd' excecuted successfully");
-		}
-	}
 
-
-	if($need_save_config)
+	if((scalar keys %ips_to_add) || (scalar keys %ips6_to_add) || (scalar keys %ips_to_add_null) || (scalar keys %ips6_to_add_null) || (scalar keys %ips_to_del) || (scalar keys %ips6_to_del) || (scalar keys %ips_to_del_null) || (scalar keys %ips6_to_del_null))
 	{
-		my $output=`$vtysh -c 'write mem'`;
-		if ( $? == -1 )
+		my ($rdr,$wtr);
+		my $pid=open2($rdr,$wtr, "$vtysh");
+		print $wtr "configure terminal\n";
+		print $wtr "router bgp $bgp_as\n";
+		# delete networks
+		foreach my $ip (keys %ips_to_del)
 		{
-			$logger->error("Unable to write Quagga configuration: $!");
+			print $wtr "no network $ip\n";
+		}
+		# add networks
+		foreach my $ip (keys %ips_to_add)
+		{
+			print $wtr "network $ip\n";
+		}
+
+		print $wtr "address-family ipv6\n";
+		foreach my $ip (keys %ips6_to_del)
+		{
+			print $wtr "no network $ip\n";
+		}
+		foreach my $ip (keys %ips6_to_add)
+		{
+			print $wtr "network $ip\n";
+		}
+		print $wtr "exit\n";
+		print $wtr "exit\n";
+		# delete routes
+		foreach my $ip (keys %ips_to_del_null)
+		{
+			print $wtr "no ip route $ip Null0\n";
+		}
+
+		foreach my $ip (keys %ips6_to_del_null)
+		{
+			print $wtr "no ip route $ip Null0\n";
+		}
+
+		# add routes
+		foreach my $ip (keys %ips_to_add_null)
+		{
+			print $wtr "ip route $ip Null0\n";
+		}
+
+		foreach my $ip (keys %ips6_to_add_null)
+		{
+			print $wtr "ip route $ip Null0\n";
+		}
+
+		print $wtr "exit\n";
+		print $wtr "write mem\n";
+		close($wtr);
+
+		waitpid( $pid, 0 );
+		my $child_exit_status = $? >> 8;
+		if($child_exit_status)
+		{
+			$logger->error("Error while excecuting vtysh commands");
 		} else {
-			$logger->info("Quagga configuration successfully saved: added $added_ip ips, deleted $deleted_ip ips, added $added_ip_null routes to blackhole, deleted $deleted_ip_null routes from blackhole.");
+			$logger->info("Quagga configuration successfully updated: added ".(scalar keys %ips_to_add)." ipv4 ips, added ".(scalar keys %ips6_to_add)." ipv6 ips, deleted ".(scalar keys %ips_to_del)." ipv4 ips, deleted ".(scalar keys %ips6_to_del)." ipv6 ips, added ".(scalar keys %ips_to_add_null)." ipv4 routes to blackhole, added ".(scalar keys %ips6_to_add_null)." ipv6 routes to blackhole, deleted ".(scalar keys %ips_to_del_null)." ipv4 routes from blackhole, deleted ".(scalar keys %ips6_to_del_null)." ipv6 routes from blackhole.");
 		}
 	}
 }
