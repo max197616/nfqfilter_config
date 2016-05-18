@@ -471,6 +471,24 @@ sub analyse_quagga_networks
 		my ($rdr,$wtr);
 		my $pid=open2($rdr,$wtr, "$vtysh");
 		print $wtr "configure terminal\n";
+		# delete routes
+		foreach my $ip (keys %ips_to_del_null)
+		{
+			print $wtr "no ip route $ip Null0\n";
+		}
+		foreach my $ip (keys %ips6_to_del_null)
+		{
+			print $wtr "no ip route $ip Null0\n";
+		}
+		# add routes
+		foreach my $ip (keys %ips_to_add_null)
+		{
+			print $wtr "ip route $ip Null0\n";
+		}
+		foreach my $ip (keys %ips6_to_add_null)
+		{
+			print $wtr "ip route $ip Null0\n";
+		}
 		print $wtr "router bgp $bgp_as\n";
 		# delete networks
 		foreach my $ip (keys %ips_to_del)
@@ -482,7 +500,6 @@ sub analyse_quagga_networks
 		{
 			print $wtr "network $ip\n";
 		}
-
 		print $wtr "address-family ipv6\n";
 		foreach my $ip (keys %ips6_to_del)
 		{
@@ -492,31 +509,7 @@ sub analyse_quagga_networks
 		{
 			print $wtr "network $ip\n";
 		}
-		print $wtr "exit\n";
-		print $wtr "exit\n";
-		# delete routes
-		foreach my $ip (keys %ips_to_del_null)
-		{
-			print $wtr "no ip route $ip Null0\n";
-		}
-
-		foreach my $ip (keys %ips6_to_del_null)
-		{
-			print $wtr "no ip route $ip Null0\n";
-		}
-
-		# add routes
-		foreach my $ip (keys %ips_to_add_null)
-		{
-			print $wtr "ip route $ip Null0\n";
-		}
-
-		foreach my $ip (keys %ips6_to_add_null)
-		{
-			print $wtr "ip route $ip Null0\n";
-		}
-
-		print $wtr "exit\n";
+		print $wtr "end\n";
 		print $wtr "write mem\n";
 		close($wtr);
 
