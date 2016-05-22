@@ -211,6 +211,10 @@ while (my $ips = $sth->fetchrow_hashref())
 
 	$url2 .= "/" if($url2 !~ /\//);
 
+	$url11 =~ s/\/+/\//g;
+	$url2 =~ s/\/+/\//g;
+	$url11 =~ s/\?$//g;
+	$url2 =~ s/\?$//g;
 	insert_to_url($url11);
 	if($url2 ne $url11)
 	{
@@ -476,6 +480,7 @@ sub analyse_quagga_networks
 		{
 			print $wtr "no ip route $ip Null0\n";
 		}
+
 		foreach my $ip (keys %ips6_to_del_null)
 		{
 			print $wtr "no ip route $ip Null0\n";
