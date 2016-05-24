@@ -568,6 +568,9 @@ sub make_special_chars
 		return if($orig_rkn =~ /^http\:\/\/[а-я]/i || $orig_rkn =~ /^http\:\/\/www\.[а-я]/i);
 		$orig_rkn =~ s/^http\:\/\///;
 		$orig_rkn =~ s/^(.*)\#(.*)$/$1/g;
+		$orig_rkn .= "/" if($orig_rkn !~ /\//);
+		$orig_rkn =~ s/\/+/\//g;
+		$orig_rkn =~ s/\?$//g;
 		my $str = encode("utf8", $orig_rkn);
 		Encode::from_to($str, 'utf-8','windows-1251');
 		if($str ne $orig_rkn)
