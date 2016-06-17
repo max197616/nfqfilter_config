@@ -218,7 +218,6 @@ while (my $ips = $sth->fetchrow_hashref())
 	insert_to_url($url11);
 	if($url2 ne $url11)
 	{
-#		print "insert original url $url2\n";
 		insert_to_url($url2);
 	}
 	make_special_chars($url11,$url1->as_iri());
@@ -483,6 +482,7 @@ sub analyse_quagga_networks
 			print $wtr "no ip route $ip Null0\n";
 			$outb=<$rdr>;
 		}
+
 		foreach my $ip (keys %ips6_to_del_null)
 		{
 			print $wtr "no ip route $ip Null0\n";
@@ -545,10 +545,23 @@ sub _encode_sp
 {
 	my $url=shift;
 	$url =~ s/\%7C/\|/g;
-	$url =~ s/\+/\%20/g;
 	$url =~ s/\%5B/\[/g;
 	$url =~ s/\%5D/\]/g;
 	$url =~ s/\%3A/\:/g;
+	$url =~ s/\%3D/\=/g;
+	$url =~ s/\%2B/\+/g;
+	$url =~ s/\%2C/\,/g;
+	return $url;
+}
+
+sub _encode_space
+{
+	my $url=shift;
+	if($url =~ /\+/)
+	{
+		$url =~ s/\+/\%20/g;
+		insert_to_url($url);
+	}
 	return $url;
 }
 
@@ -563,18 +576,21 @@ sub make_special_chars
 		$logger->debug("Write changed url to the file");
 		insert_to_url($url);
 	}
+	_encode_space($url);
 	if($url =~ /\%27/)
 	{
 		$url =~ s/\%27/\'/g;
 		$logger->debug("Write changed url (%27) to the file");
 		insert_to_url($url);
 	}
+	_encode_space($url);
 	if($url =~ /\%5C/)
 	{
 		$url =~ s/\%5C/\//g;
 		$logger->debug("Write changed url (slashes) to the file");
 		insert_to_url($url);
 	}
+	_encode_space($url);
 	if($orig_rkn && $orig_rkn =~ /[\x{0080}-\x{FFFF}]/)
 	{
 		return if($orig_rkn =~ /^http\:\/\/[а-я]/i || $orig_rkn =~ /^http\:\/\/www\.[а-я]/i);
