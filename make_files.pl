@@ -114,8 +114,8 @@ open (my $PROTOS_FILE, ">", $protos_file) or die "Could not open file '$protos_f
 my $cur_time=strftime "%F %T", localtime $^T;
 
 
-my @http_add_ports;
-my @https_add_ports;
+my %http_add_ports;
+my %https_add_ports;
 
 my %ssl_hosts;
 my %ssl_ip;
@@ -180,7 +180,7 @@ while (my $ips = $sth->fetchrow_hashref())
 		if($port ne "443")
 		{
 			$logger->info("Adding $port to https protocol");
-			push(@https_add_ports,$port);
+			$https_add_ports{$port}=1;
 		}
 		my @ssl_ips=get_ips_for_record_id($ips->{record_id});
 		foreach my $ip (@ssl_ips)
@@ -194,7 +194,7 @@ while (my $ips = $sth->fetchrow_hashref())
 	if($port ne "80")
 	{
 		$logger->info("Adding $port to http protocol");
-		push(@http_add_ports,$port);
+		$http_add_ports{$port}=1;
 	}
 
 	$host =~ s/\.$//;
@@ -213,11 +213,19 @@ while (my $ips = $sth->fetchrow_hashref())
 
 	$url11 =~ s/\/+/\//g;
 	$url2 =~ s/\/+/\//g;
+
+	$url11 =~ s/http\:\//http\:\/\//g;
+	$url2 =~ s/http\:\//http\:\/\//g;
+
+	$url11 =~ s/\/http\:\/\//\/http\:\//g;
+	$url2 =~ s/\/http\:\/\//\/http\:\//g;
+
 	$url11 =~ s/\?$//g;
 	$url2 =~ s/\?$//g;
 	insert_to_url($url11);
 	if($url2 ne $url11)
 	{
+#		print "insert original url $url2\n";
 		insert_to_url($url2);
 	}
 	make_special_chars($url11,$url1->as_iri());
@@ -299,7 +307,7 @@ if(!$update_soft_quagga)
 }
 
 my $n=0;
-foreach my $port (@http_add_ports)
+foreach my $port (keys %http_add_ports)
 {
 	print $PROTOS_FILE ($n == 0 ? "" : ","),"tcp:$port";
 	$n++;
@@ -310,7 +318,7 @@ if($n)
 }
 
 $n=0;
-foreach my $port (@https_add_ports)
+foreach my $port (keys %https_add_ports)
 {
 	print $PROTOS_FILE ($n == 0 ? "" : ","),"tcp:$port";
 	$n++;
@@ -568,6 +576,7 @@ sub _encode_space
 sub make_special_chars
 {
 	my $url=shift;
+	my $url1=$url;
 	my $orig_rkn=shift;
 	my $orig_url=$url;
 	$url = _encode_sp($url);
