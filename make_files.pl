@@ -128,6 +128,7 @@ while (my $ips = $sth->fetchrow_hashref())
 	my $domain_canonical=new URI("http://".$domain)->canonical();
 	$domain_canonical =~ s/^http\:\/\///;
 	$domain_canonical =~ s/\/$//;
+	$domain_canonical =~ s/\.$//;
 	$logger->debug("Canonical domain: $domain_canonical");
 	print $DOMAINS_FILE $domain_canonical."\n";
 	if($domains_ssl eq "true")
