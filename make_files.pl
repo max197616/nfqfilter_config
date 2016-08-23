@@ -223,6 +223,9 @@ while (my $ips = $sth->fetchrow_hashref())
 
 	$url11 =~ s/\?$//g;
 	$url2 =~ s/\?$//g;
+
+	$url11 =~ s/\.$//;
+	$url2 =~ s/\.$//;
 	insert_to_url($url11);
 	if($url2 ne $url11)
 	{
