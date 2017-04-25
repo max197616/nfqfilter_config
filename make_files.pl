@@ -48,6 +48,8 @@ my $protos_file = $Config->{'APP.protocols'} || "";
 my $ssls_ips_file = $Config->{'APP.ssls_ips'} || "";
 my $domains_ssl = $Config->{'APP.domains_ssl'} || "false";
 $domains_ssl = lc($domains_ssl);
+my $only_original_ssl_ip = $Config->{'APP.only_original_ssl_ip'} || "false";
+$only_original_ssl_ip = lc($only_original_ssl_ip);
 
 my $bgp_as = $Config->{'BGP.our_as'} || "";
 my $bgp_router_id = $Config->{'BGP.router_id'} || "";
@@ -388,7 +390,9 @@ sub get_ips_for_record_id
 {
 	my $record_id=shift;
 	my @ips;
-	my $sth = $dbh->prepare("SELECT ip FROM zap2_ips WHERE record_id=$record_id");
+	my $sql = "SELECT ip FROM zap2_ips WHERE record_id=$record_id";
+	$sql="SELECT ip FROM zap2_ips WHERE record_id=$record_id AND resolved=0" if($only_original_ssl_ip eq "true");
+	my $sth = $dbh->prepare($sql);
 	$sth->execute;
 	while (my $ips = $sth->fetchrow_hashref())
 	{
