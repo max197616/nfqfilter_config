@@ -121,6 +121,7 @@ my %https_add_ports;
 
 my %ssl_hosts;
 my %ssl_ip;
+my %domains;
 
 my $sth = $dbh->prepare("SELECT * FROM zap2_domains");
 $sth->execute;
@@ -131,6 +132,12 @@ while (my $ips = $sth->fetchrow_hashref())
 	$domain_canonical =~ s/^http\:\/\///;
 	$domain_canonical =~ s/\/$//;
 	$domain_canonical =~ s/\.$//;
+	if(defined $domains{$domain_canonical})
+	{
+		$logger->warn("Domain $domain_canonical already present in the domains list");
+		next;
+	}
+	$domains{$domain_canonical}=1;
 	$logger->debug("Canonical domain: $domain_canonical");
 	print $DOMAINS_FILE $domain_canonical."\n";
 	if($domains_ssl eq "true")
@@ -175,6 +182,11 @@ while (my $ips = $sth->fetchrow_hashref())
 	my $path=$url1->path();
 	my $query=$url1->query();
 	my $port=$url1->port();
+	if(defined $domains{$host})
+	{
+		$logger->warn("Host '$host' from url '$url2' present in the domains");
+		next;
+	}
 	if($scheme eq 'https')
 	{
 		next if(defined $ssl_hosts{$host});
