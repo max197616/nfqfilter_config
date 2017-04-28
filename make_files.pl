@@ -287,7 +287,7 @@ while (my $ips = $sth->fetchrow_hashref())
 	{
 		$ip_cidr_null->add_any($ip);
 		$ip_cidr->add_any($ip);
-	} elsif ($ip_version == 6)
+	} else
 	{
 		$ip6_cidr_null->add_any($ip);
 		$ip_cidr->add_any($ip);
