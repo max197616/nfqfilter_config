@@ -260,17 +260,16 @@ while (my $ips = $sth->fetchrow_hashref())
 }
 $sth->finish();
 
-$sth = $dbh->prepare("SELECT ip FROM zap2_ips UNION SELECT ip FROM zap2_only_ips");
+$sth = $dbh->prepare("SELECT ip FROM zap2_ips");
 $sth->execute;
 while (my $ips = $sth->fetchrow_hashref())
 {
 	my $ip=get_ip($ips->{ip});
 	next if($ip eq "0.0.0.0" || $ip eq "0000:0000:0000:0000:0000:0000:0000:0000");
-	my $ip_version=ip_get_version($ip);
-	if($ip_version == 4)
+	if($ip =~ /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/)
 	{
 		$ip_cidr->add_any($ip);
-	} elsif ($ip_version == 6)
+	} else
 	{
 		$ip6_cidr->add_any($ip);
 	}
@@ -284,13 +283,31 @@ while (my $ips = $sth->fetchrow_hashref())
 {
 	my $ip=get_ip($ips->{ip});
 	next if($ip eq "0.0.0.0" || $ip eq "0000:0000:0000:0000:0000:0000:0000:0000");
-	my $ip_version=ip_get_version($ip);
-	if($ip_version == 4)
+	if($ip =~ /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/)
 	{
 		$ip_cidr_null->add_any($ip);
+		$ip_cidr->add_any($ip);
 	} elsif ($ip_version == 6)
 	{
 		$ip6_cidr_null->add_any($ip);
+		$ip_cidr->add_any($ip);
+	}
+}
+$sth->finish();
+
+$sth = $dbh->prepare("SELECT subnet FROM zap2_subnets");
+$sth->execute;
+while (my $ips = $sth->fetchrow_hashref())
+{
+	my $subnet = $ips->{subnet};
+	if($subnet =~ /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/)
+	{
+		$ip_cidr_null->add_any($subnet);
+		$ip_cidr->add_any($subnet);
+	} else
+	{
+		$ip6_cidr_null->add_any($subnet);
+		$ip6_cidr->add_any($subnet);
 	}
 }
 $sth->finish();
