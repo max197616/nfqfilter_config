@@ -182,6 +182,8 @@ while (my $ips = $sth->fetchrow_hashref())
 	my $path=$url1->path();
 	my $query=$url1->query();
 	my $port=$url1->port();
+
+	$host =~ s/\.$//;
 	if(defined $domains{$host})
 	{
 		$logger->warn("Host '$host' from url '$url2' present in the domains");
@@ -212,9 +214,7 @@ while (my $ips = $sth->fetchrow_hashref())
 		$http_add_ports{$port}=1;
 	}
 
-	#$host =~ s/\.$//;
 	$url1->host($host);
-
 	my $url11=$url1->canonical();
 
 	$url11 =~ s/^http\:\/\///;
