@@ -48,6 +48,8 @@ my $protos_file = $Config->{'APP.protocols'} || "";
 my $ssls_ips_file = $Config->{'APP.ssls_ips'} || "";
 my $domains_ssl = $Config->{'APP.domains_ssl'} || "false";
 $domains_ssl = lc($domains_ssl);
+my $only_original_ssl_ip = $Config->{'APP.only_original_ssl_ip'} || "false";
+$only_original_ssl_ip = lc($only_original_ssl_ip);
 
 my $bgp_as = $Config->{'BGP.our_as'} || "";
 my $bgp_router_id = $Config->{'BGP.router_id'} || "";
@@ -119,6 +121,7 @@ my %https_add_ports;
 
 my %ssl_hosts;
 my %ssl_ip;
+my %domains;
 
 my $sth = $dbh->prepare("SELECT * FROM zap2_domains");
 $sth->execute;
@@ -129,6 +132,12 @@ while (my $ips = $sth->fetchrow_hashref())
 	$domain_canonical =~ s/^http\:\/\///;
 	$domain_canonical =~ s/\/$//;
 	$domain_canonical =~ s/\.$//;
+	if(defined $domains{$domain_canonical})
+	{
+		$logger->warn("Domain $domain_canonical already present in the domains list");
+		next;
+	}
+	$domains{$domain_canonical}=1;
 	$logger->debug("Canonical domain: $domain_canonical");
 	print $DOMAINS_FILE $domain_canonical."\n";
 	if($domains_ssl eq "true")
@@ -169,10 +178,15 @@ while (my $ips = $sth->fetchrow_hashref())
 		}
 		next;
 	}
-	my $host=$url1->host();
+	my $host=lc($url1->host());
 	my $path=$url1->path();
 	my $query=$url1->query();
 	my $port=$url1->port();
+	if(defined $domains{$host})
+	{
+		$logger->warn("Host '$host' from url '$url2' present in the domains");
+		next;
+	}
 	if($scheme eq 'https')
 	{
 		next if(defined $ssl_hosts{$host});
@@ -206,9 +220,18 @@ while (my $ips = $sth->fetchrow_hashref())
 	$url11 =~ s/^http\:\/\///;
 	$url2 =~ s/^http\:\/\///;
 
+	my $host_end=index($url2,'/',7);
+	my $need_add_dot=0;
+	$need_add_dot=1 if(substr($url2, $host_end-1 , 1) eq ".");
+
 	# убираем любое упоминание о фрагменте... оно не нужно
 	$url11 =~ s/^(.*)\#(.*)$/$1/g;
 	$url2 =~ s/^(.*)\#(.*)$/$1/g;
+
+	if((my $idx=index($url2,"&#")) != -1)
+	{
+		$url2 = substr($url2,0,$idx);
+	}
 
 	$url2 .= "/" if($url2 !~ /\//);
 
@@ -226,27 +249,27 @@ while (my $ips = $sth->fetchrow_hashref())
 
 	$url11 =~ s/\/\.$//;
 	$url2 =~ s/\/\.$//;
+	$url11 =~ s/\//\.\// if($need_add_dot);
 	insert_to_url($url11);
 	if($url2 ne $url11)
 	{
 #		print "insert original url $url2\n";
 		insert_to_url($url2);
 	}
-	make_special_chars($url11,$url1->as_iri());
+	make_special_chars($url11,$url1->as_iri(),$need_add_dot);
 }
 $sth->finish();
 
-$sth = $dbh->prepare("SELECT ip FROM zap2_ips UNION SELECT ip FROM zap2_only_ips");
+$sth = $dbh->prepare("SELECT ip FROM zap2_ips");
 $sth->execute;
 while (my $ips = $sth->fetchrow_hashref())
 {
 	my $ip=get_ip($ips->{ip});
 	next if($ip eq "0.0.0.0" || $ip eq "0000:0000:0000:0000:0000:0000:0000:0000");
-	my $ip_version=ip_get_version($ip);
-	if($ip_version == 4)
+	if($ip =~ /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/)
 	{
 		$ip_cidr->add_any($ip);
-	} elsif ($ip_version == 6)
+	} else
 	{
 		$ip6_cidr->add_any($ip);
 	}
@@ -260,13 +283,31 @@ while (my $ips = $sth->fetchrow_hashref())
 {
 	my $ip=get_ip($ips->{ip});
 	next if($ip eq "0.0.0.0" || $ip eq "0000:0000:0000:0000:0000:0000:0000:0000");
-	my $ip_version=ip_get_version($ip);
-	if($ip_version == 4)
+	if($ip =~ /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/)
 	{
 		$ip_cidr_null->add_any($ip);
-	} elsif ($ip_version == 6)
+		$ip_cidr->add_any($ip);
+	} else
 	{
 		$ip6_cidr_null->add_any($ip);
+		$ip_cidr->add_any($ip);
+	}
+}
+$sth->finish();
+
+$sth = $dbh->prepare("SELECT subnet FROM zap2_subnets");
+$sth->execute;
+while (my $ips = $sth->fetchrow_hashref())
+{
+	my $subnet = $ips->{subnet};
+	if($subnet =~ /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/)
+	{
+		$ip_cidr_null->add_any($subnet);
+		$ip_cidr->add_any($subnet);
+	} else
+	{
+		$ip6_cidr_null->add_any($subnet);
+		$ip6_cidr->add_any($subnet);
 	}
 }
 $sth->finish();
@@ -388,7 +429,9 @@ sub get_ips_for_record_id
 {
 	my $record_id=shift;
 	my @ips;
-	my $sth = $dbh->prepare("SELECT ip FROM zap2_ips WHERE record_id=$record_id");
+	my $sql = "SELECT ip FROM zap2_ips WHERE record_id=$record_id";
+	$sql="SELECT ip FROM zap2_ips WHERE record_id=$record_id AND resolved=0" if($only_original_ssl_ip eq "true");
+	my $sth = $dbh->prepare($sql);
 	$sth->execute;
 	while (my $ips = $sth->fetchrow_hashref())
 	{
@@ -563,6 +606,7 @@ sub _encode_sp
 	$url =~ s/\%3D/\=/g;
 	$url =~ s/\%2B/\+/g;
 	$url =~ s/\%2C/\,/g;
+	$url =~ s/\%2F/\//g;
 	return $url;
 }
 
@@ -583,6 +627,7 @@ sub make_special_chars
 	my $url1=$url;
 	my $orig_rkn=shift;
 	my $orig_url=$url;
+	my $need_add_dot=shift;
 	$url = _encode_sp($url);
 	if($url ne $orig_url)
 	{
@@ -608,6 +653,7 @@ sub make_special_chars
 	{
 		return if($orig_rkn =~ /^http\:\/\/[а-я]/i || $orig_rkn =~ /^http\:\/\/www\.[а-я]/i);
 		$orig_rkn =~ s/^http\:\/\///;
+		$orig_rkn =~ s/\//\.\// if($need_add_dot);
 		$orig_rkn =~ s/^(.*)\#(.*)$/$1/g;
 		$orig_rkn .= "/" if($orig_rkn !~ /\//);
 		$orig_rkn =~ s/\/+/\//g;
