@@ -212,7 +212,7 @@ while (my $ips = $sth->fetchrow_hashref())
 		$http_add_ports{$port}=1;
 	}
 
-	$host =~ s/\.$//;
+	#$host =~ s/\.$//;
 	$url1->host($host);
 
 	my $url11=$url1->canonical();
@@ -290,7 +290,7 @@ while (my $ips = $sth->fetchrow_hashref())
 	} else
 	{
 		$ip6_cidr_null->add_any($ip);
-		$ip_cidr->add_any($ip);
+		$ip6_cidr->add_any($ip);
 	}
 }
 $sth->finish();
