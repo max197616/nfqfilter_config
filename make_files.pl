@@ -36,8 +36,6 @@ my $db_user = $Config->{'DB.user'} || die "DB.user not defined.";
 my $db_pass = $Config->{'DB.password'} || die "DB.password not defined.";
 my $db_name = $Config->{'DB.name'} || die "DB.name not defined.";
 
-my @resolvers = $Config->{'NS.resolvers'} || ();
-
 # пути к генерируемым файлам:
 my $bgpd_file = $Config->{'BGP.quagga_config'} || "";
 my $domains_file = $Config->{'APP.domains'} || "";
