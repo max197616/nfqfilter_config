@@ -36,8 +36,6 @@ my $db_user = $Config->{'DB.user'} || die "DB.user not defined.";
 my $db_pass = $Config->{'DB.password'} || die "DB.password not defined.";
 my $db_name = $Config->{'DB.name'} || die "DB.name not defined.";
 
-my @resolvers = $Config->{'NS.resolvers'} || ();
-
 # пути к генерируемым файлам:
 my $bgpd_file = $Config->{'BGP.quagga_config'} || "";
 my $domains_file = $Config->{'APP.domains'} || "";
@@ -182,6 +180,8 @@ while (my $ips = $sth->fetchrow_hashref())
 	my $path=$url1->path();
 	my $query=$url1->query();
 	my $port=$url1->port();
+
+	$host =~ s/\.$//;
 	if(defined $domains{$host})
 	{
 		$logger->warn("Host '$host' from url '$url2' present in the domains");
@@ -212,9 +212,7 @@ while (my $ips = $sth->fetchrow_hashref())
 		$http_add_ports{$port}=1;
 	}
 
-	$host =~ s/\.$//;
 	$url1->host($host);
-
 	my $url11=$url1->canonical();
 
 	$url11 =~ s/^http\:\/\///;
@@ -260,17 +258,16 @@ while (my $ips = $sth->fetchrow_hashref())
 }
 $sth->finish();
 
-$sth = $dbh->prepare("SELECT ip FROM zap2_ips UNION SELECT ip FROM zap2_only_ips");
+$sth = $dbh->prepare("SELECT ip FROM zap2_ips");
 $sth->execute;
 while (my $ips = $sth->fetchrow_hashref())
 {
 	my $ip=get_ip($ips->{ip});
 	next if($ip eq "0.0.0.0" || $ip eq "0000:0000:0000:0000:0000:0000:0000:0000");
-	my $ip_version=ip_get_version($ip);
-	if($ip_version == 4)
+	if($ip =~ /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/)
 	{
 		$ip_cidr->add_any($ip);
-	} elsif ($ip_version == 6)
+	} else
 	{
 		$ip6_cidr->add_any($ip);
 	}
@@ -284,13 +281,31 @@ while (my $ips = $sth->fetchrow_hashref())
 {
 	my $ip=get_ip($ips->{ip});
 	next if($ip eq "0.0.0.0" || $ip eq "0000:0000:0000:0000:0000:0000:0000:0000");
-	my $ip_version=ip_get_version($ip);
-	if($ip_version == 4)
+	if($ip =~ /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/)
 	{
 		$ip_cidr_null->add_any($ip);
-	} elsif ($ip_version == 6)
+		$ip_cidr->add_any($ip);
+	} else
 	{
 		$ip6_cidr_null->add_any($ip);
+		$ip6_cidr->add_any($ip);
+	}
+}
+$sth->finish();
+
+$sth = $dbh->prepare("SELECT subnet FROM zap2_subnets");
+$sth->execute;
+while (my $ips = $sth->fetchrow_hashref())
+{
+	my $subnet = $ips->{subnet};
+	if($subnet =~ /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/)
+	{
+		$ip_cidr_null->add_any($subnet);
+		$ip_cidr->add_any($subnet);
+	} else
+	{
+		$ip6_cidr_null->add_any($subnet);
+		$ip6_cidr->add_any($subnet);
 	}
 }
 $sth->finish();
