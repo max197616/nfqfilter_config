@@ -643,6 +643,7 @@ sub make_special_chars
 	if($url =~ /\%5C/)
 	{
 		$url =~ s/\%5C/\//g;
+		$url =~ s/\/\/$/\//;
 		$logger->debug("Write changed url (slashes) to the file");
 		insert_to_url($url);
 	}
